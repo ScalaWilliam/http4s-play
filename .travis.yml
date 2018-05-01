@@ -1,0 +1,18 @@
+language: scala
+dist: trusty
+matrix:
+  include:
+  - jdk: oraclejdk8
+    scala: 2.12.4
+  - jdk: oraclejdk8
+    scala: 2.11.12
+  - jdk: oraclejdk9
+    scala: 2.12.4
+sudo: required
+cache:
+  directories:
+  - "$HOME/.coursier/cache"
+  - "$HOME/.ivy2/cache"
+  - "$HOME/.sbt/boot"
+script:
+  - sbt ++$TRAVIS_SCALA_VERSION example/compile play-route/test

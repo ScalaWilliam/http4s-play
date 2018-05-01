@@ -6,7 +6,7 @@ lazy val server = Project(id = "server", base = file("http4s"))
 lazy val fs2Io                            = "co.fs2"                 %% "fs2-io"                    % "0.10.3"
 lazy val fs2ReactiveStreams = "com.github.zainab-ali" %% "fs2-reactive-streams" % "0.5.1"
 
-lazy val `examples-play` = project
+lazy val `examples-play` = project.in(file("example"))
  .enablePlugins(PlayScala)
   .settings(
     description := "Example of http4s on Play",
