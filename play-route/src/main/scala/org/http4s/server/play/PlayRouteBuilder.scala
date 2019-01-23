@@ -3,33 +3,25 @@ package org.http4s.server.play
 import akka.stream.scaladsl.{Sink, Source}
 import akka.util.ByteString
 import cats.data.OptionT
-import cats.effect.{Async, Effect, IO}
+import cats.effect.{Async, ConcurrentEffect, IO}
+import cats.syntax.all._
 import fs2.Chunk
 import fs2.interop.reactivestreams._
 import org.http4s.server.play.PlayRouteBuilder.{PlayAccumulator, PlayRouting, PlayTargetStream}
 import org.http4s.util.CaseInsensitiveString
-import org.http4s.{
-  EmptyBody,
-  EntityBody,
-  Header,
-  Headers,
-  HttpService,
-  Method,
-  Request,
-  Response,
-  Uri
-}
+import org.http4s.{EmptyBody, EntityBody, Header, Headers, HttpRoutes, Method, Request, Response, Uri}
 import play.api.http.HttpEntity.Streamed
 import play.api.libs.streams.Accumulator
 import play.api.mvc._
-import cats.syntax.all._
 
 import scala.concurrent.duration.Duration
 import scala.concurrent.{Await, ExecutionContext, Future, Promise}
+import scala.language.higherKinds
 
-class PlayRouteBuilder[F[_]](
-    service: HttpService[F]
-)(implicit F: Effect[F], executionContext: ExecutionContext) {
+class PlayRouteBuilder[F[_]](service: HttpRoutes[F])
+                            (implicit
+                             F: ConcurrentEffect[F],
+                             executionContext: ExecutionContext) {
 
   type UnwrappedKleisli = Request[F] => OptionT[F, Response[F]]
   private[this] val unwrappedRun: UnwrappedKleisli = service.run
@@ -57,11 +49,11 @@ class PlayRouteBuilder[F[_]](
   def effectToFuture[T](eff: F[T]): Future[T] = {
     val promise = Promise[T]
     F.runAsync(eff) {
-        case Left(bad) =>
-          IO(promise.failure(bad))
-        case Right(good) =>
-          IO(promise.success(good))
-      }
+      case Left(bad) =>
+        IO(promise.failure(bad))
+      case Right(good) =>
+        IO(promise.success(good))
+    }
       .unsafeRunSync()
 
     promise.future
@@ -99,11 +91,11 @@ class PlayRouteBuilder[F[_]](
         val promise = Promise[Result]
 
         F.runAsync(Async.shift(executionContext) *> wrappedResult) {
-            case Left(bad) =>
-              IO(promise.failure(bad))
-            case Right(good) =>
-              IO(promise.success(good))
-          }
+          case Left(bad) =>
+            IO(promise.failure(bad))
+          case Right(good) =>
+            IO(promise.success(good))
+        }
           .unsafeRunSync()
 
         promise.future
@@ -132,18 +124,18 @@ class PlayRouteBuilder[F[_]](
 
     val completion = Promise[Boolean]()
     F.runAsync(Async.shift(executionContext) *> computeRequestHeader) {
-        case Left(f) => IO(completion.failure(f))
-        case Right(s) => IO(completion.success(s.isDefined))
-      }
+      case Left(f) => IO(completion.failure(f))
+      case Right(s) => IO(completion.success(s.isDefined))
+    }
       .unsafeRunSync()
     Await.result(completion.future, Duration.Inf)
   }
 
   def build: PlayRouting = {
     case requestHeader
-        if Method.fromString(requestHeader.method).isRight && routeMatches(
-          requestHeader,
-          Method.fromString(requestHeader.method).right.get) =>
+      if Method.fromString(requestHeader.method).isRight && routeMatches(
+        requestHeader,
+        Method.fromString(requestHeader.method).right.get) =>
       EssentialAction(
         playRequestToPlayResponse(_, Method.fromString(requestHeader.method).right.get))
   }
@@ -160,8 +152,8 @@ object PlayRouteBuilder {
 
   /** Borrowed from Play for now **/
   def withPrefix(
-      prefix: String,
-      t: _root_.play.api.routing.Router.Routes): _root_.play.api.routing.Router.Routes =
+                  prefix: String,
+                  t: _root_.play.api.routing.Router.Routes): _root_.play.api.routing.Router.Routes =
     if (prefix == "/") {
       t
     } else {
