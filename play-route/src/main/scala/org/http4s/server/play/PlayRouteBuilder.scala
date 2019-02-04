@@ -42,12 +42,13 @@ class PlayRouteBuilder[F[_]](service: HttpRoutes[F])
   def convertStream(responseStream: EntityBody[F]): PlayTargetStream = {
     val entityBody: fs2.Stream[F, ByteString] =
       responseStream.chunks.map(chunk => ByteString(chunk.toArray))
-    Source
-      .fromPublisher(entityBody.toUnicastPublisher())
+
+    Source.fromPublisher(entityBody.toUnicastPublisher())
   }
 
   def effectToFuture[T](eff: F[T]): Future[T] = {
     val promise = Promise[T]
+
     F.runAsync(eff) {
       case Left(bad) =>
         IO(promise.failure(bad))
@@ -88,17 +89,7 @@ class PlayRouteBuilder[F[_]](service: HttpRoutes[F])
           )
         }
 
-        val promise = Promise[Result]
-
-        F.runAsync(Async.shift(executionContext) *> wrappedResult) {
-          case Left(bad) =>
-            IO(promise.failure(bad))
-          case Right(good) =>
-            IO(promise.success(good))
-        }
-          .unsafeRunSync()
-
-        promise.future
+        effectToFuture[Result](Async.shift(executionContext) *> wrappedResult)
       }
     }
     Accumulator.apply(sink)
@@ -122,22 +113,21 @@ class PlayRouteBuilder[F[_]](service: HttpRoutes[F])
       efff
     }.flatten
 
-    val completion = Promise[Boolean]()
-    F.runAsync(Async.shift(executionContext) *> computeRequestHeader) {
-      case Left(f) => IO(completion.failure(f))
-      case Right(s) => IO(completion.success(s.isDefined))
-    }
-      .unsafeRunSync()
-    Await.result(completion.future, Duration.Inf)
+    val matches = effectToFuture[Boolean](Async.shift(executionContext) *> computeRequestHeader.map(_.isDefined))
+
+    Await.result(matches, Duration.Inf)
   }
 
   def build: PlayRouting = {
     case requestHeader
-      if Method.fromString(requestHeader.method).isRight && routeMatches(
-        requestHeader,
-        Method.fromString(requestHeader.method).right.get) =>
-      EssentialAction(
-        playRequestToPlayResponse(_, Method.fromString(requestHeader.method).right.get))
+      if Method.fromString(requestHeader.method).isRight &&
+        routeMatches(requestHeader, Method.fromString(requestHeader.method).right.get) =>
+      EssentialAction { requestHeader =>
+        playRequestToPlayResponse(
+          requestHeader,
+          Method.fromString(requestHeader.method).right.get
+        )
+      }
   }
 
 }
@@ -151,9 +141,8 @@ object PlayRouteBuilder {
   type PlayTargetStream = Source[ByteString, _]
 
   /** Borrowed from Play for now **/
-  def withPrefix(
-                  prefix: String,
-                  t: _root_.play.api.routing.Router.Routes): _root_.play.api.routing.Router.Routes =
+  def withPrefix(prefix: String,
+                 t: _root_.play.api.routing.Router.Routes): _root_.play.api.routing.Router.Routes =
     if (prefix == "/") {
       t
     } else {
