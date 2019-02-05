@@ -1,1 +1,0 @@
-dependsOn(RootProject(file("../http4s/project")))
