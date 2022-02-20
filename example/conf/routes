@@ -1,2 +1,2 @@
-GET / @controllers.Main.index
-->  / @controllers.Http4sRouter
+GET        /        controllers.Main.index
+->         /        controllers.Http4sRouter
